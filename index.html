@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DisCompress - Discord Video Compressor</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>DisCompress</h1>
+            <p>Compress videos to fit Discord's file size limits</p>
+        </header>
+
+        <div class="upload-container">
+            <label for="video-upload" class="upload-label">
+                <div class="upload-icon">📁</div>
+                <span>Drop video here or click to upload</span>
+            </label>
+            <input type="file" id="video-upload" accept="video/*">
+        </div>
+
+        <div class="settings">
+            <div class="setting-group">
+                <label>Target Size:</label>
+                <div class="size-options">
+                    <button class="size-option active" data-size="10">10MB (Free)</button>
+                    <button class="size-option" data-size="50">50MB (Nitro Basic)</button>
+                    <button class="size-option" data-size="500">500MB (Nitro)</button>
+                    <div class="custom-size">
+                        <input type="number" id="custom-size" min="1" max="500" placeholder="Custom MB">
+                    </div>
+                </div>
+            </div>
+
+            <div class="setting-group">
+                <label>Quality Priority:</label>
+                <select id="quality-priority">
+                    <option value="balanced">Balanced</option>
+                    <option value="quality">Higher Quality</option>
+                    <option value="size">Smaller Size</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="preview-container hidden">
+            <div class="video-preview">
+                <video id="preview-video" controls></video>
+            </div>
+            <div class="info-panel">
+                <div class="file-info">
+                    <div class="info-item">
+                        <span>Original Size:</span>
+                        <span id="original-size">-</span>
+                    </div>
+                    <div class="info-item">
+                        <span>Compressed Size:</span>
+                        <span id="compressed-size">-</span>
+                    </div>
+                    <div class="info-item">
+                        <span>Reduction:</span>
+                        <span id="size-reduction">-</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="compression-progress hidden">
+            <div class="progress-bar">
+                <div class="progress-fill"></div>
+            </div>
+            <div class="progress-text">Compressing: <span id="progress-percent">0%</span></div>
+        </div>
+
+        <div class="action-buttons hidden">
+            <button id="compress-btn" class="primary-btn">Compress Video</button>
+            <button id="download-btn" class="secondary-btn" disabled>Download</button>
+        </div>
+
+        <div class="error-message hidden"></div>
+    </div>
+
+    <footer>
+        <p>DisCompress - Compress your videos for Discord without sacrificing quality</p>
+    </footer>
+
+    <script src="compression.js"></script>
+</body>
+</html>
