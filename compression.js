@@ -30,14 +30,19 @@ function getSupportedMimeTypes() {
         return [];
     }
 
-    const supportedTypes = [
+    // Try these MIME types in order of preference
+    const types = [
+        // Video + audio codecs in order of preference
+        'video/webm;codecs=vp9,opus',
+        'video/webm;codecs=vp8,opus',
+        'video/mp4;codecs=h264,aac',
         'video/webm;codecs=vp9',
         'video/webm;codecs=vp8',
         'video/webm',
         'video/mp4'
     ];
 
-    return supportedTypes.filter(type => MediaRecorder.isTypeSupported(type));
+    return types.filter(type => MediaRecorder.isTypeSupported(type));
 }
 
 // Helper functions
@@ -247,88 +252,134 @@ async function compressVideo(file, options) {
                 canvas.width = width;
                 canvas.height = height;
 
-                // Configure media recorder
-                const stream = canvas.captureStream();
+                try {
+                    // Configure media recorder
+                    const stream = canvas.captureStream();
 
-                // Create an audio context and source
-                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                const audioSource = audioCtx.createMediaElementSource(video);
-                const audioDestination = audioCtx.createMediaStreamDestination();
-                audioSource.connect(audioDestination);
-
-                // Add audio track to stream
-                stream.addTrack(audioDestination.stream.getAudioTracks()[0]);
-
-                // Create MediaRecorder with options
-                const recorderOptions = {
-                    mimeType: supportedMimeTypes[0],
-                    videoBitsPerSecond: videoBitrate,
-                    audioBitsPerSecond: audioBitrate
-                };
-
-                const recorder = new MediaRecorder(stream, recorderOptions);
-                const chunks = [];
-
-                recorder.ondataavailable = e => {
-                    if (e.data.size > 0) {
-                        chunks.push(e.data);
+                    // Check if the video has audio
+                    let hasAudio = false;
+                    if (video.mozHasAudio !== undefined) {
+                        hasAudio = video.mozHasAudio;
+                    } else if (video.webkitAudioDecodedByteCount !== undefined) {
+                        hasAudio = video.webkitAudioDecodedByteCount > 0;
+                    } else {
+                        // Assume video has audio if we can't detect
+                        hasAudio = true;
                     }
-                };
 
-                recorder.onstop = () => {
-                    // Get the appropriate mime type for the blob
-                    const mimeType = supportedMimeTypes[0];
-                    const fileExt = mimeType.includes('webm') ? 'webm' : 'mp4';
+                    // Only try to add audio if the video has it
+                    if (hasAudio) {
+                        try {
+                            // Create an audio context and source
+                            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                            const audioSource = audioCtx.createMediaElementSource(video);
+                            const audioDestination = audioCtx.createMediaStreamDestination();
+                            audioSource.connect(audioDestination);
 
-                    const blob = new Blob(chunks, { type: mimeType });
-                    resolve({ blob, fileExt });
-                };
+                            // Add audio track to stream
+                            stream.addTrack(audioDestination.stream.getAudioTracks()[0]);
+                        } catch (audioError) {
+                            console.warn('Could not add audio track', audioError);
+                            // Continue without audio if it fails
+                        }
+                    }
 
-                // Set up video events
-                video.addEventListener('play', function() {
-                    // Start recording when video plays
-                    recorder.start(1000); // 1-second chunks
+                    // Find a MIME type that works with our stream configuration
+                    let selectedMimeType = null;
+                    let recorderOptions = null;
 
-                    // Draw video frames to canvas
-                    function drawFrame() {
-                        if (video.paused || video.ended) {
-                            if (recorder.state !== 'inactive') {
-                                recorder.stop();
+                    for (const mimeType of supportedMimeTypes) {
+                        try {
+                            recorderOptions = {
+                                mimeType: mimeType,
+                                videoBitsPerSecond: videoBitrate
+                            };
+
+                            if (hasAudio) {
+                                recorderOptions.audioBitsPerSecond = audioBitrate;
                             }
-                            return;
+
+                            // Test if this configuration works
+                            const testRecorder = new MediaRecorder(stream, recorderOptions);
+                            selectedMimeType = mimeType;
+                            break;
+                        } catch (e) {
+                            console.warn(`MediaRecorder configuration failed for ${mimeType}:`, e);
+                            // Try the next MIME type
+                        }
+                    }
+
+                    if (!selectedMimeType) {
+                        throw new Error('No compatible MediaRecorder configuration found');
+                    }
+
+                    console.log('Using MIME type:', selectedMimeType);
+
+                    const recorder = new MediaRecorder(stream, recorderOptions);
+                    const chunks = [];
+
+                    recorder.ondataavailable = e => {
+                        if (e.data.size > 0) {
+                            chunks.push(e.data);
+                        }
+                    };
+
+                    recorder.onstop = () => {
+                        // Get the appropriate mime type for the blob
+                        const fileExt = selectedMimeType.includes('webm') ? 'webm' : 'mp4';
+
+                        const blob = new Blob(chunks, { type: selectedMimeType });
+                        resolve({ blob, fileExt });
+                    };
+
+                    // Set up video events
+                    video.addEventListener('play', function() {
+                        // Start recording when video plays
+                        recorder.start(1000); // 1-second chunks
+
+                        // Draw video frames to canvas
+                        function drawFrame() {
+                            if (video.paused || video.ended) {
+                                if (recorder.state !== 'inactive') {
+                                    recorder.stop();
+                                }
+                                return;
+                            }
+
+                            // Draw current frame
+                            ctx.drawImage(video, 0, 0, width, height);
+
+                            // Update progress
+                            const progress = (video.currentTime / duration) * 100;
+                            updateProgress(progress);
+
+                            // Request next frame
+                            requestAnimationFrame(drawFrame);
                         }
 
-                        // Draw current frame
-                        ctx.drawImage(video, 0, 0, width, height);
+                        drawFrame();
+                    });
 
-                        // Update progress
-                        const progress = (video.currentTime / duration) * 100;
-                        updateProgress(progress);
+                    video.addEventListener('ended', function() {
+                        // Ensure recorder is stopped when video ends
+                        if (recorder.state !== 'inactive') {
+                            recorder.stop();
+                        }
+                    });
 
-                        // Request next frame
-                        requestAnimationFrame(drawFrame);
+                    video.addEventListener('error', function() {
+                        reject(new Error('Error playing video for compression'));
+                    });
+
+                    // Start playback
+                    try {
+                        await video.play();
+                    } catch (playError) {
+                        // Handle autoplay restrictions
+                        reject(new Error('Could not autoplay video for compression. Please try again.'));
                     }
-
-                    drawFrame();
-                });
-
-                video.addEventListener('ended', function() {
-                    // Ensure recorder is stopped when video ends
-                    if (recorder.state !== 'inactive') {
-                        recorder.stop();
-                    }
-                });
-
-                video.addEventListener('error', function() {
-                    reject(new Error('Error playing video for compression'));
-                });
-
-                // Start playback
-                try {
-                    await video.play();
-                } catch (playError) {
-                    // Handle autoplay restrictions
-                    reject(new Error('Could not autoplay video for compression. Please try again.'));
+                } catch (error) {
+                    reject(error);
                 }
             };
 
