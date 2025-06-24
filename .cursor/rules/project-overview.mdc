@@ -3,3 +3,32 @@ description:
 globs:
 alwaysApply: false
 ---
+# Project Overview
+
+DisCompress is a browser-based video compression tool specifically designed for Discord file size limits. It allows users to compress videos to fit Discord's file size restrictions without leaving their browser.
+
+## Key Files
+
+- [index.html](mdc:index.html): Main entry point and UI for the application
+- [compression.js](mdc:compression.js): Core functionality for video compression
+- [styles.css](mdc:styles.css): Styling for the application
+
+## Features
+
+- Compress videos to fit Discord's file size limits (10MB, 50MB, 500MB)
+- Adjustable quality settings to prioritize quality or size
+- Custom target size options
+- Real-time compression progress
+- Before/after size comparison
+- Drag-and-drop file upload
+
+## Technical Details
+
+DisCompress uses browser technologies:
+- Canvas API to capture video frames
+- MediaRecorder API to encode compressed video
+- WebM container format with VP9 video codec
+- Web Audio API for audio tracks
+- File API for file handling
+
+All processing is done client-side to preserve privacy.

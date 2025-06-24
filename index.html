@@ -3,8 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Compress videos to fit Discord's file size limits directly in your browser. No uploads required, everything happens locally.">
+    <meta name="keywords" content="discord, video compression, file size, browser, webm, mp4, nitro">
+    <meta name="author" content="DisCompress">
+
+    <!-- Open Graph metadata -->
+    <meta property="og:title" content="DisCompress - Discord Video Compressor">
+    <meta property="og:description" content="Compress videos to fit Discord's file size limits directly in your browser">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://discompress.officiallysp.net/">
+
     <title>DisCompress - Discord Video Compressor</title>
+
+    <!-- Favicon support -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='75' font-size='75'>🎬</text></svg>">
     <link rel="stylesheet" href="styles.css">
+
+    <!-- Preconnect to improve performance -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 </head>
 <body>
     <div class="container">
@@ -13,31 +30,32 @@
             <p>Compress videos to fit Discord's file size limits</p>
         </header>
 
-        <div class="upload-container">
+        <div class="upload-container" role="button" aria-label="Upload video file">
             <label for="video-upload" class="upload-label">
                 <div class="upload-icon">📁</div>
                 <span>Drop video here or click to upload</span>
+                <small class="supported-formats">Supports MP4, WebM, MOV, AVI, and more</small>
             </label>
-            <input type="file" id="video-upload" accept="video/*">
+            <input type="file" id="video-upload" accept="video/*" aria-label="Video file input">
         </div>
 
         <div class="settings">
             <div class="setting-group">
                 <label>Target Size:</label>
-                <div class="size-options">
-                    <button class="size-option active" data-size="10">10MB (Free)</button>
-                    <button class="size-option" data-size="50">50MB (Nitro Basic)</button>
-                    <button class="size-option" data-size="500">500MB (Nitro)</button>
+                <div class="size-options" role="group" aria-label="Target file size options">
+                    <button class="size-option active" data-size="10" aria-pressed="true">10MB (Free)</button>
+                    <button class="size-option" data-size="50" aria-pressed="false">50MB (Nitro Basic)</button>
+                    <button class="size-option" data-size="500" aria-pressed="false">500MB (Nitro)</button>
                     <div class="custom-size">
-                        <input type="number" id="custom-size" min="1" max="500" placeholder="Custom MB">
+                        <input type="number" id="custom-size" min="1" max="2000" placeholder="Custom MB" aria-label="Custom size in MB">
                     </div>
                 </div>
             </div>
 
             <div class="setting-group">
-                <label>Quality Priority:</label>
-                <select id="quality-priority">
-                    <option value="balanced">Balanced</option>
+                <label for="quality-priority">Quality Priority:</label>
+                <select id="quality-priority" aria-label="Quality priority setting">
+                    <option value="balanced">Balanced (Recommended)</option>
                     <option value="quality">Higher Quality</option>
                     <option value="size">Smaller Size</option>
                 </select>
@@ -46,43 +64,47 @@
 
         <div class="preview-container hidden">
             <div class="video-preview">
-                <video id="preview-video" controls></video>
+                <video id="preview-video" controls preload="metadata"></video>
             </div>
             <div class="info-panel">
                 <div class="file-info">
                     <div class="info-item">
                         <span>Original Size:</span>
-                        <span id="original-size">-</span>
+                        <span id="original-size" class="size-value">-</span>
                     </div>
                     <div class="info-item">
                         <span>Compressed Size:</span>
-                        <span id="compressed-size">-</span>
+                        <span id="compressed-size" class="size-value">-</span>
                     </div>
                     <div class="info-item">
                         <span>Reduction:</span>
-                        <span id="size-reduction">-</span>
+                        <span id="size-reduction" class="reduction-value">-</span>
                     </div>
                 </div>
             </div>
         </div>
 
-        <div class="compression-progress hidden">
+        <div class="compression-progress hidden" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
             <div class="progress-bar">
                 <div class="progress-fill"></div>
             </div>
             <div class="progress-text">Compressing: <span id="progress-percent">0%</span></div>
+            <div class="progress-hint">This may take a few minutes for large videos...</div>
         </div>
 
         <div class="action-buttons hidden">
-            <button id="compress-btn" class="primary-btn">Compress Video</button>
-            <button id="download-btn" class="secondary-btn" disabled>Download</button>
+            <button id="compress-btn" class="primary-btn" aria-label="Compress video">Compress Video</button>
+            <button id="download-btn" class="secondary-btn" disabled aria-label="Download compressed video">Download</button>
+            <button id="reset-btn" class="secondary-btn" aria-label="Reset and upload new video">New Video</button>
         </div>
 
-        <div class="error-message hidden"></div>
+        <div class="error-message hidden" role="alert"></div>
+        <div class="success-message hidden" role="status"></div>
     </div>
 
     <footer>
         <p>DisCompress - Compress your videos for Discord without sacrificing quality</p>
+        <p class="privacy-note">🔒 All processing happens in your browser. No data is uploaded to any server.</p>
     </footer>
 
     <script src="compression.js"></script>

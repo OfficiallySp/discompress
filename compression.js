@@ -8,11 +8,13 @@ const compressedSizeEl = document.getElementById('compressed-size');
 const sizeReductionEl = document.getElementById('size-reduction');
 const compressBtn = document.getElementById('compress-btn');
 const downloadBtn = document.getElementById('download-btn');
+const resetBtn = document.getElementById('reset-btn');
 const compressionProgress = document.querySelector('.compression-progress');
 const progressFill = document.querySelector('.progress-fill');
 const progressPercent = document.getElementById('progress-percent');
 const actionButtons = document.querySelector('.action-buttons');
 const errorMessage = document.querySelector('.error-message');
+const successMessage = document.querySelector('.success-message');
 const sizeOptions = document.querySelectorAll('.size-option');
 const customSizeInput = document.getElementById('custom-size');
 const qualityPriority = document.getElementById('quality-priority');
@@ -23,6 +25,7 @@ let compressedVideo = null;
 let originalVideoSize = 0;
 let targetSize = 10; // Default target size in MB
 let supportedMimeTypes = getSupportedMimeTypes();
+let activeAudioContext = null; // Track audio context for cleanup
 
 // Detect supported mime types
 function getSupportedMimeTypes() {
@@ -34,10 +37,16 @@ function getSupportedMimeTypes() {
     const types = [
         // Video + audio codecs in order of preference
         'video/webm;codecs=vp9,opus',
+        'video/webm;codecs=vp9,vorbis',
         'video/webm;codecs=vp8,opus',
+        'video/webm;codecs=vp8,vorbis',
+        'video/webm;codecs=h264,opus',
+        'video/webm;codecs=h264,aac',
         'video/mp4;codecs=h264,aac',
+        'video/mp4;codecs=h264,mp4a.40.2',
         'video/webm;codecs=vp9',
         'video/webm;codecs=vp8',
+        'video/webm;codecs=h264',
         'video/webm',
         'video/mp4'
     ];
@@ -59,14 +68,26 @@ function formatFileSize(bytes) {
 function showError(message) {
     errorMessage.textContent = message;
     errorMessage.classList.remove('hidden');
+    successMessage.classList.add('hidden');
     setTimeout(() => {
         errorMessage.classList.add('hidden');
+    }, 5000);
+}
+
+function showSuccess(message) {
+    successMessage.textContent = message;
+    successMessage.classList.remove('hidden');
+    errorMessage.classList.add('hidden');
+    setTimeout(() => {
+        successMessage.classList.add('hidden');
     }, 5000);
 }
 
 function updateProgress(percent) {
     progressFill.style.width = `${percent}%`;
     progressPercent.textContent = `${Math.round(percent)}%`;
+    // Update aria attribute for accessibility
+    compressionProgress.setAttribute('aria-valuenow', Math.round(percent));
 }
 
 // Add loading spinner to button
@@ -176,6 +197,7 @@ function resetUI() {
     }
 
     // Reset size info
+    originalSizeEl.textContent = '-';
     compressedSizeEl.textContent = '-';
     sizeReductionEl.textContent = '-';
 
@@ -183,103 +205,176 @@ function resetUI() {
     compressionProgress.classList.add('hidden');
     progressFill.style.width = '0%';
     progressPercent.textContent = '0%';
+    compressionProgress.setAttribute('aria-valuenow', 0);
 
     // Reset buttons
     downloadBtn.disabled = true;
+    compressBtn.disabled = false;
+    compressBtn.textContent = 'Compress Video';
 
-    // Clear error
+    // Clear messages
     errorMessage.classList.add('hidden');
+    successMessage.classList.add('hidden');
 
     // Clear compressed video
+    if (compressedVideo && compressedVideo.blob) {
+        if (compressedVideo.url) {
+            URL.revokeObjectURL(compressedVideo.url);
+        }
+    }
     compressedVideo = null;
+
+    // Clean up audio context
+    if (activeAudioContext) {
+        try {
+            activeAudioContext.close();
+        } catch (e) {
+            console.warn('Failed to close audio context:', e);
+        }
+        activeAudioContext = null;
+    }
+}
+
+// Memory usage estimation
+function estimateMemoryUsage(fileSize, duration) {
+    // Rough estimation: video decoding + canvas rendering + recording
+    const decodingMemory = fileSize * 3; // Decoded frames use more memory
+    const canvasMemory = 1920 * 1080 * 4 * 30; // Assume HD video at 30fps
+    const recordingMemory = fileSize * 0.5; // Recording buffer
+
+    return decodingMemory + canvasMemory + recordingMemory;
+}
+
+// Check if browser can handle the video
+function canHandleVideo(fileSize, duration) {
+    const estimatedMemory = estimateMemoryUsage(fileSize, duration);
+    const maxSafeMemory = 1024 * 1024 * 1024; // 1GB safe limit
+
+    if (estimatedMemory > maxSafeMemory) {
+        return {
+            canHandle: false,
+            reason: 'Video may be too large for browser processing. Consider using a smaller video or desktop software.'
+        };
+    }
+
+    return { canHandle: true };
 }
 
 // Video compression function
 async function compressVideo(file, options) {
     return new Promise(async (resolve, reject) => {
+        let video = null;
+        let recorder = null;
+        let stream = null;
+
         try {
             // Create video element to get metadata
-            const video = document.createElement('video');
+            video = document.createElement('video');
             video.preload = 'metadata';
+            video.muted = true; // Prevent audio feedback
 
             video.onloadedmetadata = async function() {
-                const duration = video.duration;
-                const canvas = document.createElement('canvas');
-                const ctx = canvas.getContext('2d');
-                const originalWidth = video.videoWidth;
-                const originalHeight = video.videoHeight;
-
-                // Calculate target bitrate based on target file size
-                // Target size in bytes / duration in seconds / 8 bits per byte = bits per second
-                const targetBitrate = Math.floor((options.targetSize * 1024 * 1024 * 8) / duration * 0.95); // 95% of theoretical max to account for container overhead
-
-                // Set quality based on priority
-                let videoBitrate, audioBitrate, width, height;
-
-                switch(options.qualityPriority) {
-                    case 'quality':
-                        // Higher quality, might not reach target size
-                        videoBitrate = Math.max(targetBitrate * 0.9, 500000); // 90% for video, min 500kbps
-                        audioBitrate = Math.max(targetBitrate * 0.1, 128000); // 10% for audio, min 128kbps
-                        width = originalWidth;
-                        height = originalHeight;
-                        break;
-                    case 'size':
-                        // Lower quality, prioritize meeting target size
-                        videoBitrate = Math.max(targetBitrate * 0.85, 350000); // 85% for video, min 350kbps
-                        audioBitrate = Math.max(targetBitrate * 0.1, 96000);  // 10% for audio, min 96kbps
-                        // Reduce resolution if needed
-                        const scaleFactor = Math.min(1, Math.sqrt(targetBitrate / 2000000));
-                        width = Math.floor(originalWidth * scaleFactor);
-                        height = Math.floor(originalHeight * scaleFactor);
-                        // Ensure even dimensions (required by some codecs)
-                        width = width - (width % 2);
-                        height = height - (height % 2);
-                        break;
-                    default: // balanced
-                        videoBitrate = Math.max(targetBitrate * 0.87, 450000); // 87% for video, min 450kbps
-                        audioBitrate = Math.max(targetBitrate * 0.1, 128000);  // 10% for audio, min 128kbps
-                        // Reduce resolution slightly if needed
-                        const balancedScaleFactor = Math.min(1, Math.sqrt(targetBitrate / 1500000));
-                        width = Math.floor(originalWidth * balancedScaleFactor);
-                        height = Math.floor(originalHeight * balancedScaleFactor);
-                        // Ensure even dimensions
-                        width = width - (width % 2);
-                        height = height - (height % 2);
-                }
-
-                // Set canvas dimensions
-                canvas.width = width;
-                canvas.height = height;
-
                 try {
+                    const duration = video.duration;
+
+                    // Check if browser can handle this video
+                    const memoryCheck = canHandleVideo(file.size, duration);
+                    if (!memoryCheck.canHandle) {
+                        throw new Error(memoryCheck.reason);
+                    }
+
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d', { willReadFrequently: false });
+                    const originalWidth = video.videoWidth;
+                    const originalHeight = video.videoHeight;
+
+                    // Calculate target bitrate based on target file size
+                    // Target size in bytes / duration in seconds / 8 bits per byte = bits per second
+                    const targetBitrate = Math.floor((options.targetSize * 1024 * 1024 * 8) / duration * 0.92); // 92% of theoretical max to account for container overhead
+
+                    // Set quality based on priority
+                    let videoBitrate, audioBitrate, width, height;
+
+                    switch(options.qualityPriority) {
+                        case 'quality':
+                            // Higher quality, might not reach target size
+                            videoBitrate = Math.max(targetBitrate * 0.9, 500000); // 90% for video, min 500kbps
+                            audioBitrate = Math.max(targetBitrate * 0.1, 128000); // 10% for audio, min 128kbps
+                            width = originalWidth;
+                            height = originalHeight;
+                            break;
+                        case 'size':
+                            // Lower quality, prioritize meeting target size
+                            videoBitrate = Math.max(targetBitrate * 0.85, 350000); // 85% for video, min 350kbps
+                            audioBitrate = Math.max(targetBitrate * 0.1, 96000);  // 10% for audio, min 96kbps
+                            // Reduce resolution if needed
+                            const scaleFactor = Math.min(1, Math.sqrt(targetBitrate / 2000000));
+                            width = Math.floor(originalWidth * scaleFactor);
+                            height = Math.floor(originalHeight * scaleFactor);
+                            // Ensure even dimensions (required by some codecs)
+                            width = width - (width % 2);
+                            height = height - (height % 2);
+                            break;
+                        default: // balanced
+                            videoBitrate = Math.max(targetBitrate * 0.87, 450000); // 87% for video, min 450kbps
+                            audioBitrate = Math.max(targetBitrate * 0.1, 128000);  // 10% for audio, min 128kbps
+                            // Reduce resolution slightly if needed
+                            const balancedScaleFactor = Math.min(1, Math.sqrt(targetBitrate / 1500000));
+                            width = Math.floor(originalWidth * balancedScaleFactor);
+                            height = Math.floor(originalHeight * balancedScaleFactor);
+                            // Ensure even dimensions
+                            width = width - (width % 2);
+                            height = height - (height % 2);
+                    }
+
+                    // Set canvas dimensions
+                    canvas.width = width;
+                    canvas.height = height;
+
                     // Configure media recorder
-                    const stream = canvas.captureStream();
+                    stream = canvas.captureStream(30); // Capture at 30fps
 
                     // Check if the video has audio
                     let hasAudio = false;
-                    if (video.mozHasAudio !== undefined) {
-                        hasAudio = video.mozHasAudio;
-                    } else if (video.webkitAudioDecodedByteCount !== undefined) {
-                        hasAudio = video.webkitAudioDecodedByteCount > 0;
-                    } else {
-                        // Assume video has audio if we can't detect
-                        hasAudio = true;
-                    }
+                    video.muted = false; // Unmute to check audio
+
+                    // More reliable audio detection
+                    const testVideo = document.createElement('video');
+                    testVideo.src = video.src;
+                    await new Promise((resolve) => {
+                        testVideo.addEventListener('loadeddata', () => {
+                            hasAudio = testVideo.mozHasAudio ||
+                                      testVideo.webkitAudioDecodedByteCount > 0 ||
+                                      testVideo.audioTracks?.length > 0 ||
+                                      true; // Default to true if unsure
+                            resolve();
+                        });
+                    });
 
                     // Only try to add audio if the video has it
                     if (hasAudio) {
                         try {
+                            // Close previous audio context if exists
+                            if (activeAudioContext) {
+                                activeAudioContext.close();
+                            }
+
                             // Create an audio context and source
-                            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                            const audioSource = audioCtx.createMediaElementSource(video);
-                            const audioDestination = audioCtx.createMediaStreamDestination();
+                            activeAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+                            const audioSource = activeAudioContext.createMediaElementSource(video);
+                            const audioDestination = activeAudioContext.createMediaStreamDestination();
+
+                            // Connect audio graph
                             audioSource.connect(audioDestination);
+                            audioSource.connect(activeAudioContext.destination); // Also play audio
 
                             // Add audio track to stream
-                            stream.addTrack(audioDestination.stream.getAudioTracks()[0]);
+                            const audioTracks = audioDestination.stream.getAudioTracks();
+                            if (audioTracks.length > 0) {
+                                stream.addTrack(audioTracks[0]);
+                            }
                         } catch (audioError) {
-                            console.warn('Could not add audio track', audioError);
+                            console.warn('Could not add audio track:', audioError);
                             // Continue without audio if it fails
                         }
                     }
@@ -315,7 +410,7 @@ async function compressVideo(file, options) {
 
                     console.log('Using MIME type:', selectedMimeType);
 
-                    const recorder = new MediaRecorder(stream, recorderOptions);
+                    recorder = new MediaRecorder(stream, recorderOptions);
                     const chunks = [];
 
                     recorder.ondataavailable = e => {
@@ -379,15 +474,37 @@ async function compressVideo(file, options) {
                         reject(new Error('Could not autoplay video for compression. Please try again.'));
                     }
                 } catch (error) {
+                    // Clean up on error
+                    if (stream) {
+                        stream.getTracks().forEach(track => track.stop());
+                    }
+                    if (recorder && recorder.state !== 'inactive') {
+                        recorder.stop();
+                    }
                     reject(error);
                 }
             };
 
-            video.onerror = () => reject(new Error('Error loading video'));
+            video.onerror = () => {
+                // Clean up on video error
+                if (stream) {
+                    stream.getTracks().forEach(track => track.stop());
+                }
+                reject(new Error('Error loading video'));
+            };
 
             // Set the source to the file
             video.src = URL.createObjectURL(file);
+
+            // Clean up blob URL after loading
+            video.onload = () => {
+                URL.revokeObjectURL(video.src);
+            };
         } catch (error) {
+            // Final cleanup
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
             reject(error);
         }
     });
@@ -450,6 +567,7 @@ compressBtn.addEventListener('click', async () => {
             showError(`The compressed video is still larger than the target size. Try compressing again or using different settings.`);
         } else {
             compressBtn.textContent = 'Compress Video';
+            showSuccess(`Video compressed successfully! Size reduced by ${reduction}%.`);
         }
     } catch (error) {
         console.error('Compression error:', error);
@@ -489,15 +607,42 @@ downloadBtn.addEventListener('click', () => {
         // Remove spinner
         removeSpinnerFromButton(downloadBtn);
         downloadBtn.textContent = 'Download';
+
+        // Show success message
+        showSuccess('Video downloaded successfully!');
     }, 500);
+});
+
+// Reset button handler
+resetBtn.addEventListener('click', () => {
+    // Reset everything
+    resetUI();
+
+    // Hide preview and action buttons
+    previewContainer.classList.add('hidden');
+    actionButtons.classList.add('hidden');
+
+    // Clear the file input
+    videoUpload.value = '';
+
+    // Reset original video
+    originalVideo = null;
+    originalVideoSize = 0;
+
+    // Show success message
+    showSuccess('Ready to compress a new video!');
 });
 
 // Size option selection
 sizeOptions.forEach(option => {
     option.addEventListener('click', () => {
-        // Update active class
-        sizeOptions.forEach(btn => btn.classList.remove('active'));
+        // Update active class and aria-pressed
+        sizeOptions.forEach(btn => {
+            btn.classList.remove('active');
+            btn.setAttribute('aria-pressed', 'false');
+        });
         option.classList.add('active');
+        option.setAttribute('aria-pressed', 'true');
 
         // Update target size
         targetSize = parseInt(option.dataset.size);
