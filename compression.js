@@ -26,6 +26,7 @@ let originalVideoSize = 0;
 let targetSize = 10; // Default target size in MB
 let supportedMimeTypes = getSupportedMimeTypes();
 let activeAudioContext = null; // Track audio context for cleanup
+let compressionActive = false; // Track compression state to prevent race conditions
 
 // Detect supported mime types
 function getSupportedMimeTypes() {
@@ -63,6 +64,39 @@ function formatFileSize(bytes) {
     const i = Math.floor(Math.log(bytes) / Math.log(k));
 
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+// Safely create and manage audio context
+async function createAudioContext() {
+    try {
+        // Close existing context if it exists and is not closed
+        if (activeAudioContext && activeAudioContext.state !== 'closed') {
+            try {
+                await activeAudioContext.close();
+            } catch (e) {
+                console.warn('Failed to close existing audio context:', e);
+            }
+        }
+
+        // Create new audio context
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContext) {
+            throw new Error('Web Audio API not supported');
+        }
+
+        activeAudioContext = new AudioContext();
+
+        // Resume context if suspended (required by some browsers)
+        if (activeAudioContext.state === 'suspended') {
+            await activeAudioContext.resume();
+        }
+
+        return activeAudioContext;
+    } catch (error) {
+        console.error('Failed to create audio context:', error);
+        activeAudioContext = null;
+        throw error;
+    }
 }
 
 function showError(message) {
@@ -225,14 +259,17 @@ function resetUI() {
     compressedVideo = null;
 
     // Clean up audio context
-    if (activeAudioContext) {
+    if (activeAudioContext && activeAudioContext.state !== 'closed') {
         try {
             activeAudioContext.close();
         } catch (e) {
             console.warn('Failed to close audio context:', e);
         }
-        activeAudioContext = null;
     }
+    activeAudioContext = null;
+    
+    // Reset compression state
+    compressionActive = false;
 }
 
 // Memory usage estimation
@@ -343,30 +380,38 @@ async function compressVideo(file, options) {
                     testVideo.src = video.src;
                     await new Promise((resolve) => {
                         testVideo.addEventListener('loadeddata', () => {
+                            // Check multiple browser-specific properties for audio
                             hasAudio = testVideo.mozHasAudio ||
-                                      testVideo.webkitAudioDecodedByteCount > 0 ||
-                                      testVideo.audioTracks?.length > 0 ||
-                                      true; // Default to true if unsure
+                                      (testVideo.webkitAudioDecodedByteCount !== undefined && testVideo.webkitAudioDecodedByteCount > 0) ||
+                                      (testVideo.audioTracks && testVideo.audioTracks.length > 0);
+                            
+                            // If all methods fail, assume audio exists to be safe
+                            // This prevents trying to add non-existent audio tracks
+                            if (hasAudio === undefined || hasAudio === null) {
+                                hasAudio = true;
+                            }
                             resolve();
                         });
+                        
+                        // Fallback in case loadeddata doesn't fire
+                        setTimeout(() => {
+                            hasAudio = true; // Conservative default
+                            resolve();
+                        }, 2000);
                     });
 
                     // Only try to add audio if the video has it
                     if (hasAudio) {
                         try {
-                            // Close previous audio context if exists
-                            if (activeAudioContext) {
-                                activeAudioContext.close();
-                            }
-
-                            // Create an audio context and source
-                            activeAudioContext = new (window.AudioContext || window.webkitAudioContext)();
-                            const audioSource = activeAudioContext.createMediaElementSource(video);
-                            const audioDestination = activeAudioContext.createMediaStreamDestination();
+                            // Create and setup audio context
+                            const audioContext = await createAudioContext();
+                            
+                            const audioSource = audioContext.createMediaElementSource(video);
+                            const audioDestination = audioContext.createMediaStreamDestination();
 
                             // Connect audio graph
                             audioSource.connect(audioDestination);
-                            audioSource.connect(activeAudioContext.destination); // Also play audio
+                            audioSource.connect(audioContext.destination); // Also play audio
 
                             // Add audio track to stream
                             const audioTracks = audioDestination.stream.getAudioTracks();
@@ -375,6 +420,7 @@ async function compressVideo(file, options) {
                             }
                         } catch (audioError) {
                             console.warn('Could not add audio track:', audioError);
+                            hasAudio = false; // Treat as video-only if audio setup fails
                             // Continue without audio if it fails
                         }
                     }
@@ -383,19 +429,28 @@ async function compressVideo(file, options) {
                     let selectedMimeType = null;
                     let recorderOptions = null;
 
+                    if (supportedMimeTypes.length === 0) {
+                        throw new Error('No supported video formats found. Please use a modern browser like Chrome or Firefox.');
+                    }
+
                     for (const mimeType of supportedMimeTypes) {
                         try {
                             recorderOptions = {
                                 mimeType: mimeType,
-                                videoBitsPerSecond: videoBitrate
+                                videoBitsPerSecond: Math.max(videoBitrate, 100000) // Ensure minimum bitrate
                             };
 
-                            if (hasAudio) {
-                                recorderOptions.audioBitsPerSecond = audioBitrate;
+                            if (hasAudio && stream.getAudioTracks().length > 0) {
+                                recorderOptions.audioBitsPerSecond = Math.max(audioBitrate, 32000); // Ensure minimum audio bitrate
                             }
 
                             // Test if this configuration works
                             const testRecorder = new MediaRecorder(stream, recorderOptions);
+                            
+                            // Test if the recorder can actually start (some browsers fail silently)
+                            testRecorder.start();
+                            testRecorder.stop();
+                            
                             selectedMimeType = mimeType;
                             break;
                         } catch (e) {
@@ -405,7 +460,7 @@ async function compressVideo(file, options) {
                     }
 
                     if (!selectedMimeType) {
-                        throw new Error('No compatible MediaRecorder configuration found');
+                        throw new Error('No compatible MediaRecorder configuration found. Your browser may not support video compression.');
                     }
 
                     console.log('Using MIME type:', selectedMimeType);
@@ -434,19 +489,23 @@ async function compressVideo(file, options) {
 
                         // Draw video frames to canvas
                         function drawFrame() {
-                            if (video.paused || video.ended) {
+                            // Stop drawing if compression is no longer active
+                            if (!compressionActive || video.paused || video.ended) {
                                 if (recorder.state !== 'inactive') {
                                     recorder.stop();
                                 }
+                                compressionActive = false;
                                 return;
                             }
 
                             // Draw current frame
                             ctx.drawImage(video, 0, 0, width, height);
 
-                            // Update progress
-                            const progress = (video.currentTime / duration) * 100;
-                            updateProgress(progress);
+                            // Update progress only if compression is still active
+                            if (compressionActive) {
+                                const progress = (video.currentTime / duration) * 100;
+                                updateProgress(progress);
+                            }
 
                             // Request next frame
                             requestAnimationFrame(drawFrame);
@@ -481,6 +540,19 @@ async function compressVideo(file, options) {
                     if (recorder && recorder.state !== 'inactive') {
                         recorder.stop();
                     }
+                    // Clean up audio context on error
+                    if (activeAudioContext && activeAudioContext.state !== 'closed') {
+                        try {
+                            activeAudioContext.close();
+                        } catch (e) {
+                            console.warn('Failed to close audio context on error:', e);
+                        }
+                        activeAudioContext = null;
+                    }
+                    // Clean up video blob URL
+                    if (video && video.src && video.src.startsWith('blob:')) {
+                        URL.revokeObjectURL(video.src);
+                    }
                     reject(error);
                 }
             };
@@ -489,6 +561,15 @@ async function compressVideo(file, options) {
                 // Clean up on video error
                 if (stream) {
                     stream.getTracks().forEach(track => track.stop());
+                }
+                // Clean up audio context on video error
+                if (activeAudioContext && activeAudioContext.state !== 'closed') {
+                    try {
+                        activeAudioContext.close();
+                    } catch (e) {
+                        console.warn('Failed to close audio context on video error:', e);
+                    }
+                    activeAudioContext = null;
                 }
                 reject(new Error('Error loading video'));
             };
@@ -504,6 +585,15 @@ async function compressVideo(file, options) {
             // Final cleanup
             if (stream) {
                 stream.getTracks().forEach(track => track.stop());
+            }
+            // Final audio context cleanup
+            if (activeAudioContext && activeAudioContext.state !== 'closed') {
+                try {
+                    activeAudioContext.close();
+                } catch (e) {
+                    console.warn('Failed to close audio context in final cleanup:', e);
+                }
+                activeAudioContext = null;
             }
             reject(error);
         }
@@ -523,7 +613,16 @@ compressBtn.addEventListener('click', async () => {
         return;
     }
 
+    // Prevent multiple compressions running simultaneously
+    if (compressionActive) {
+        showError('Compression is already in progress.');
+        return;
+    }
+
     try {
+        // Set compression as active
+        compressionActive = true;
+        
         // Show progress and disable button
         compressionProgress.classList.remove('hidden');
         compressBtn.disabled = true;
@@ -577,6 +676,9 @@ compressBtn.addEventListener('click', async () => {
         removeSpinnerFromButton(compressBtn);
         compressBtn.disabled = false;
         compressBtn.textContent = 'Compress Video';
+    } finally {
+        // Always reset compression state
+        compressionActive = false;
     }
 });
 
@@ -593,10 +695,20 @@ downloadBtn.addEventListener('click', () => {
         const a = document.createElement('a');
         a.href = URL.createObjectURL(compressedVideo.blob);
 
-        // Generate filename
-        const originalFilename = originalVideo.name;
-        const fileExtension = originalFilename.substring(originalFilename.lastIndexOf('.'));
-        const newFilename = originalFilename.replace(fileExtension, '') + '_compressed.' + compressedVideo.fileExt;
+        // Generate filename with improved extension handling
+        const originalFilename = originalVideo.name || 'video';
+        const lastDotIndex = originalFilename.lastIndexOf('.');
+        
+        // Extract base name (everything before the last dot, or whole filename if no dot)
+        const baseName = lastDotIndex > 0 ? originalFilename.substring(0, lastDotIndex) : originalFilename;
+        
+        // Clean base name (remove any characters that could cause issues)
+        const cleanBaseName = baseName.replace(/[<>:"/\\|?*]/g, '_').trim() || 'video';
+        
+        // Ensure we have a valid file extension
+        const validExtension = compressedVideo.fileExt || 'webm';
+        
+        const newFilename = `${cleanBaseName}_compressed.${validExtension}`;
 
         a.download = newFilename;
         a.click();
@@ -659,16 +771,52 @@ sizeOptions.forEach(option => {
 
 // Custom size input
 customSizeInput.addEventListener('input', () => {
-    if (customSizeInput.value) {
-        // Update target size
-        targetSize = parseInt(customSizeInput.value);
+    const value = customSizeInput.value.trim();
+    
+    if (value) {
+        const numValue = parseFloat(value);
+        
+        // Validate input
+        if (isNaN(numValue) || numValue <= 0 || numValue > 2000) {
+            showError('Please enter a valid size between 1 and 2000 MB.');
+            customSizeInput.classList.add('error');
+            return;
+        }
+        
+        // Remove error styling if valid
+        customSizeInput.classList.remove('error');
+        
+        // Update target size (round to avoid decimal issues)
+        targetSize = Math.round(numValue);
 
-        // Remove active class from size options
-        sizeOptions.forEach(btn => btn.classList.remove('active'));
+        // Remove active class from size options and update aria attributes
+        sizeOptions.forEach(btn => {
+            btn.classList.remove('active');
+            btn.setAttribute('aria-pressed', 'false');
+        });
 
         // Check if current video is under the new target size
         if (originalVideo && originalVideoSize <= targetSize * 1024 * 1024) {
             showError(`The uploaded video is already under the ${targetSize}MB target size. Compression may not be necessary.`);
+        }
+    } else {
+        // Remove error styling when input is empty
+        customSizeInput.classList.remove('error');
+    }
+});
+
+// Additional validation on blur
+customSizeInput.addEventListener('blur', () => {
+    const value = customSizeInput.value.trim();
+    if (value) {
+        const numValue = parseFloat(value);
+        if (isNaN(numValue) || numValue <= 0 || numValue > 2000) {
+            customSizeInput.value = '';
+            customSizeInput.classList.remove('error');
+            // Revert to default 10MB if no valid input
+            targetSize = 10;
+            sizeOptions[0].classList.add('active');
+            sizeOptions[0].setAttribute('aria-pressed', 'true');
         }
     }
 });

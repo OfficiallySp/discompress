@@ -203,6 +203,15 @@ input[type="number"]:focus {
     border-color: var(--primary-color);
 }
 
+input[type="number"].error {
+    border-color: var(--error-color);
+    box-shadow: 0 0 0 2px rgba(237, 66, 69, 0.2);
+}
+
+input[type="number"].error:focus {
+    border-color: var(--error-color);
+}
+
 select {
     width: 100%;
     padding: 0.75rem;
