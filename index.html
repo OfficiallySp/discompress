@@ -3,17 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Compress videos to fit Discord's file size limits directly in your browser. No uploads required, everything happens locally.">
-    <meta name="keywords" content="discord, video compression, file size, browser, webm, mp4, nitro">
-    <meta name="author" content="DisCompress">
+    <meta name="description" content="Discord tools: compress videos to fit file size limits, and format text with Discord markdown. All processing in your browser.">
+    <meta name="keywords" content="discord, video compression, markdown, file size, browser, webm, mp4, nitro, discord formatting">
+    <meta name="author" content="OfficiallySp">
 
     <!-- Open Graph metadata -->
-    <meta property="og:title" content="DisCompress - Discord Video Compressor">
-    <meta property="og:description" content="Compress videos to fit Discord's file size limits directly in your browser">
+    <meta property="og:title" content="Discord Tools - Video Compressor & Markdown Formatter">
+    <meta property="og:description" content="Compress videos for Discord and format text with Discord markdown. All in your browser.">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://discompress.officiallysp.net/">
+    <meta property="og:site_name" content="Discord Tools">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Discord Tools - Video Compressor & Markdown Formatter">
+    <meta name="twitter:description" content="Compress videos and format text for Discord.">
+    <link rel="canonical" href="https://discompress.officiallysp.net/">
 
-    <title>DisCompress - Discord Video Compressor</title>
+    <title>Discord Tools - Video Compressor & Markdown Formatter</title>
 
     <!-- Favicon support -->
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='75' font-size='75'>🎬</text></svg>">
@@ -22,6 +27,8 @@
     <!-- Preconnect to improve performance -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
     <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1548903334937961"
      crossorigin="anonymous"></script>
     <link rel="stylesheet" href="https://officiallysp.net/assets/css/design-tokens.css" />
@@ -32,87 +39,219 @@
     </a>
     <div class="container">
         <header>
-            <h1>DisCompress</h1>
-            <p>Compress videos to fit Discord's file size limits</p>
+            <h1>Discord Tools</h1>
+            <p>Compress videos and format text for Discord</p>
+            <nav class="tool-nav" role="tablist" aria-label="Select tool">
+                <button class="tool-tab active" role="tab" aria-selected="true" aria-controls="tool-compress" id="tab-compress">Video Compressor</button>
+                <button class="tool-tab" role="tab" aria-selected="false" aria-controls="tool-markdown" id="tab-markdown">Markdown Formatter</button>
+            </nav>
         </header>
 
-        <div class="upload-container" role="button" aria-label="Upload video file">
-            <label for="video-upload" class="upload-label">
-                <div class="upload-icon">📁</div>
-                <span>Drop video here or click to upload</span>
-                <small class="supported-formats">Supports MP4, WebM, MOV, AVI, and more</small>
-            </label>
-            <input type="file" id="video-upload" accept="video/*" aria-label="Video file input">
-        </div>
+        <!-- Video Compressor -->
+        <section id="tool-compress" class="tool-panel active" role="tabpanel" aria-labelledby="tab-compress">
+            <div class="upload-container" role="button" aria-label="Upload video file">
+                <label for="video-upload" class="upload-label">
+                    <div class="upload-icon">📁</div>
+                    <span>Drop video here or click to upload</span>
+                    <small class="supported-formats">Supports MP4, WebM, MOV, AVI, and more</small>
+                </label>
+                <input type="file" id="video-upload" accept="video/*" aria-label="Video file input">
+            </div>
 
-        <div class="settings">
-            <div class="setting-group">
-                <label>Target Size:</label>
-                <div class="size-options" role="group" aria-label="Target file size options">
-                    <button class="size-option active" data-size="10" aria-pressed="true">10MB (Free)</button>
-                    <button class="size-option" data-size="50" aria-pressed="false">50MB (Nitro Basic)</button>
-                    <button class="size-option" data-size="500" aria-pressed="false">500MB (Nitro)</button>
-                    <div class="custom-size">
-                        <input type="number" id="custom-size" min="1" max="2000" placeholder="Custom MB" aria-label="Custom size in MB">
+            <div class="settings">
+                <div class="setting-group">
+                    <label>Target Size:</label>
+                    <div class="size-options" role="group" aria-label="Target file size options">
+                        <button class="size-option active" data-size="10" aria-pressed="true">10MB (Free)</button>
+                        <button class="size-option" data-size="50" aria-pressed="false">50MB (Nitro Basic)</button>
+                        <button class="size-option" data-size="500" aria-pressed="false">500MB (Nitro)</button>
+                        <div class="custom-size">
+                            <input type="number" id="custom-size" min="1" max="2000" placeholder="Custom MB" aria-label="Custom size in MB">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="setting-group">
+                    <label for="quality-priority">Quality Priority:</label>
+                    <select id="quality-priority" aria-label="Quality priority setting">
+                        <option value="balanced">Balanced (Recommended)</option>
+                        <option value="quality">Higher Quality</option>
+                        <option value="size">Smaller Size</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="preview-container hidden">
+                <div class="video-preview">
+                    <video id="preview-video" controls preload="metadata"></video>
+                </div>
+                <div class="info-panel">
+                    <div class="file-info">
+                        <div class="info-item">
+                            <span>Original Size:</span>
+                            <span id="original-size" class="size-value">-</span>
+                        </div>
+                        <div class="info-item">
+                            <span>Compressed Size:</span>
+                            <span id="compressed-size" class="size-value">-</span>
+                        </div>
+                        <div class="info-item">
+                            <span>Reduction:</span>
+                            <span id="size-reduction" class="reduction-value">-</span>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <div class="setting-group">
-                <label for="quality-priority">Quality Priority:</label>
-                <select id="quality-priority" aria-label="Quality priority setting">
-                    <option value="balanced">Balanced (Recommended)</option>
-                    <option value="quality">Higher Quality</option>
-                    <option value="size">Smaller Size</option>
-                </select>
+            <div class="compression-progress hidden" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                <div class="progress-bar">
+                    <div class="progress-fill"></div>
+                </div>
+                <div class="progress-text">Compressing: <span id="progress-percent">0%</span></div>
+                <div class="progress-hint">This may take a few minutes for large videos...</div>
             </div>
-        </div>
 
-        <div class="preview-container hidden">
-            <div class="video-preview">
-                <video id="preview-video" controls preload="metadata"></video>
+            <div class="action-buttons hidden">
+                <button id="compress-btn" class="primary-btn" aria-label="Compress video">Compress Video</button>
+                <button id="download-btn" class="secondary-btn" disabled aria-label="Download compressed video">Download</button>
+                <button id="reset-btn" class="secondary-btn" aria-label="Reset and upload new video">New Video</button>
             </div>
-            <div class="info-panel">
-                <div class="file-info">
-                    <div class="info-item">
-                        <span>Original Size:</span>
-                        <span id="original-size" class="size-value">-</span>
+
+            <div class="error-message hidden" role="alert"></div>
+            <div class="success-message hidden" role="status"></div>
+        </section>
+
+        <!-- Markdown Formatter -->
+        <section id="tool-markdown" class="tool-panel" role="tabpanel" aria-labelledby="tab-markdown" hidden>
+            <div class="markdown-header">
+                <button id="theme-toggle" aria-label="Toggle theme"><i class="fas fa-adjust"></i> Toggle Theme</button>
+            </div>
+            <div class="editor">
+                <textarea id="input" placeholder="Enter your text here..."></textarea>
+                <div id="output"></div>
+                <div class="editor-footer">
+                    <div class="editor-actions">
+                        <div class="editor-actions-group">
+                            <button id="undo-btn" title="Undo"><i class="fas fa-undo"></i></button>
+                            <button id="redo-btn" title="Redo"><i class="fas fa-redo"></i></button>
+                        </div>
+                        <button id="copy-btn" title="Copy to Clipboard"><i class="fas fa-copy"></i> Copy</button>
                     </div>
-                    <div class="info-item">
-                        <span>Compressed Size:</span>
-                        <span id="compressed-size" class="size-value">-</span>
+                    <div class="char-count-nitro">
+                        <span id="char-count">0 / 2000</span>
+                        <button id="nitro-toggle"><i class="fas fa-bolt"></i> Toggle Nitro</button>
                     </div>
-                    <div class="info-item">
-                        <span>Reduction:</span>
-                        <span id="size-reduction" class="reduction-value">-</span>
+                    <div class="template-controls">
+                        <input type="text" id="template-name" placeholder="Template name">
+                        <button id="save-template">Save</button>
+                        <select id="load-template">
+                            <option value="">Load Template</option>
+                        </select>
+                        <button id="remove-template">Remove</button>
                     </div>
                 </div>
             </div>
-        </div>
-
-        <div class="compression-progress hidden" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
-            <div class="progress-bar">
-                <div class="progress-fill"></div>
+            <div class="controls">
+                <div class="control-group">
+                    <h3>Text Styling</h3>
+                    <button onclick="applyFormat('bold')" title="Bold"><i class="fas fa-bold"></i> Bold</button>
+                    <button onclick="applyFormat('italic')" title="Italic"><i class="fas fa-italic"></i> Italic</button>
+                    <button onclick="applyFormat('underline')" title="Underline"><i class="fas fa-underline"></i> Underline</button>
+                    <button onclick="applyFormat('strikethrough')" title="Strikethrough"><i class="fas fa-strikethrough"></i> Strikethrough</button>
+                </div>
+                <div class="control-group">
+                    <h3>Code</h3>
+                    <button onclick="applyFormat('inlineCode')" title="Inline Code"><i class="fas fa-code"></i> Inline Code</button>
+                    <button onclick="applyFormat('codeblock')" title="Code Block"><i class="fas fa-file-code"></i> Code Block</button>
+                </div>
+                <div class="control-group">
+                    <h3>Quotes</h3>
+                    <button onclick="applyFormat('quote')" title="Quote"><i class="fas fa-quote-left"></i> Quote</button>
+                    <button onclick="applyFormat('multiQuote')" title="Multi-line Quote"><i class="fas fa-quote-right"></i> Multi-line Quote</button>
+                </div>
+                <div class="control-group">
+                    <h3>Headers</h3>
+                    <button onclick="applyFormat('header1')" title="Header 1"><i class="fas fa-heading"></i> Header 1</button>
+                    <button onclick="applyFormat('header2')" title="Header 2"><i class="fas fa-heading"></i> Header 2</button>
+                    <button onclick="applyFormat('header3')" title="Header 3"><i class="fas fa-heading"></i> Header 3</button>
+                </div>
+                <div class="control-group">
+                    <h3>Other</h3>
+                    <button onclick="applyFormat('spoiler')" title="Spoiler"><i class="fas fa-eye-slash"></i> Spoiler</button>
+                    <button onclick="applyFormat('subtext')" title="Subtext"><i class="fas fa-subscript"></i> Subtext</button>
+                    <button onclick="applyFormat('bulletList')" title="Bullet List"><i class="fas fa-list-ul"></i> Bullet List</button>
+                    <button onclick="applyFormat('maskedLink')" title="Masked Link"><i class="fas fa-link"></i> Masked Link</button>
+                    <button id="timestamp-btn" title="Timestamp" class="timestamp-btn"><i class="fas fa-clock"></i> Timestamp</button>
+                </div>
             </div>
-            <div class="progress-text">Compressing: <span id="progress-percent">0%</span></div>
-            <div class="progress-hint">This may take a few minutes for large videos...</div>
-        </div>
+            <button id="toggle-cheatsheet">Toggle Cheat Sheet</button>
+            <div id="cheatsheet" class="cheatsheet-panel">
+                <h2>Markdown Cheat Sheet</h2>
+                <ul>
+                    <li><strong>Bold:</strong> **text**</li>
+                    <li><em>Italic:</em> *text*</li>
+                    <li><u>Underline:</u> __text__</li>
+                    <li><s>Strikethrough:</s> ~~text~~</li>
+                    <li>Inline Code: `code`</li>
+                    <li>Code Block: ```code```</li>
+                    <li>Quote: > text</li>
+                    <li>Multi-line Quote: >>> text</li>
+                    <li>Spoiler: ||text||</li>
+                    <li>Header 1: # text</li>
+                    <li>Header 2: ## text</li>
+                    <li>Header 3: ### text</li>
+                    <li>Subtext: -# text</li>
+                    <li>Bullet List: * item</li>
+                    <li>Masked Link: [text](url)</li>
+                    <li>Timestamp: &lt;t:1234567890:t&gt; (t, T, d, D, f, F, R)</li>
+                </ul>
+            </div>
+        </section>
+    </div>
 
-        <div class="action-buttons hidden">
-            <button id="compress-btn" class="primary-btn" aria-label="Compress video">Compress Video</button>
-            <button id="download-btn" class="secondary-btn" disabled aria-label="Download compressed video">Download</button>
-            <button id="reset-btn" class="secondary-btn" aria-label="Reset and upload new video">New Video</button>
+    <!-- Timestamp Modal -->
+    <div id="timestamp-modal" class="modal-overlay hidden" aria-hidden="true">
+        <div class="modal-content">
+            <h2>Insert Timestamp</h2>
+            <div class="timestamp-sections">
+                <div class="preset-timestamps">
+                    <h3>Preset Timestamps</h3>
+                    <div class="timestamp-grid">
+                        <button data-format="t">Short Time</button>
+                        <button data-format="T">Long Time</button>
+                        <button data-format="d">Short Date</button>
+                        <button data-format="D">Long Date</button>
+                        <button data-format="f">Short Date/Time</button>
+                        <button data-format="F">Long Date/Time</button>
+                        <button data-format="R">Relative Time</button>
+                    </div>
+                </div>
+                <div class="custom-timestamp">
+                    <h3>Custom Timestamp</h3>
+                    <input type="datetime-local" id="custom-date-picker">
+                    <select id="custom-date-format">
+                        <option value="t">Short Time</option>
+                        <option value="T">Long Time</option>
+                        <option value="d">Short Date</option>
+                        <option value="D">Long Date</option>
+                        <option value="f">Short Date/Time</option>
+                        <option value="F">Long Date/Time</option>
+                        <option value="R">Relative Time</option>
+                    </select>
+                    <button id="insert-custom-timestamp">Insert Custom Date</button>
+                </div>
+            </div>
+            <button id="close-timestamp-modal">Close</button>
         </div>
-
-        <div class="error-message hidden" role="alert"></div>
-        <div class="success-message hidden" role="status"></div>
     </div>
 
     <footer>
-        <p>Made with ❤️ by <a href="https://officiallysp.net" target="_blank">OfficiallySp</a> · <a href="https://officiallysp.net">More projects</a></p>
+        <p>Made with ❤️ by <a href="https://officiallysp.net" target="_blank">OfficiallySp</a> · <a href="https://officiallysp.net">More projects</a> · <a href="https://support.discord.com/hc/en-us/articles/210298617-Markdown-Text-101-Chat-Formatting-Bold-Italic-Underline-" target="_blank">Discord Markdown Guide</a></p>
         <p class="privacy-note">🔒 All processing happens in your browser. No data is uploaded to any server.</p>
     </footer>
 
     <script src="compression.js"></script>
+    <script src="markdown.js"></script>
+    <script src="app.js"></script>
 </body>
 </html>

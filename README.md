@@ -1,8 +1,18 @@
-# DisCompress
+# Discord Tools
 
-A browser-based video compression tool specifically designed for Discord file size limits. Compress your videos to fit Discord's file size restrictions without leaving your browser.
+A combined suite of browser-based tools for Discord users: **video compression** and **markdown formatting**. All processing happens locally in your browser.
 
-## Features
+## Tools
+
+### Video Compressor (DisCompress)
+Compress videos to fit Discord's file size limits—no uploads required.
+
+### Markdown Formatter
+Format text for Discord with bold, italic, code blocks, spoilers, timestamps, and more. Live preview and template support.
+
+---
+
+## Video Compressor Features
 
 - **Privacy-Focused**: All processing happens locally in your browser - no server uploads
 - **Discord-Optimized**: Preset sizes for Discord Free (10MB), Nitro Basic (50MB), and Nitro (500MB)
