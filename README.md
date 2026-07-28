@@ -28,7 +28,7 @@ Format text for Discord with bold, italic, code blocks, spoilers, timestamps, an
 
 ## How to Use
 
-1. Go to https://discompress.officiallysp.net/
+1. Go to https://discordtools.officiallysp.net/
 2. Drag and drop a video file onto the upload area, or click to select a file
 3. Select your target file size:
    - 10MB (Discord Free)
